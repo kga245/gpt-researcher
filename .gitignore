@@ -42,6 +42,6 @@ package-lock.json
 #Vim swp files
 *.swp
 
-# Log files and backups
+# Log files
 logs/
 *.orig
