@@ -40,7 +40,10 @@ docs/build
 package-lock.json
 
 #Vim swp files
-*.swpdata_backup/
+*.swp
+
+# Log files and backups
+data_backup/
 logs/
 server_log.txt
 *.orig
