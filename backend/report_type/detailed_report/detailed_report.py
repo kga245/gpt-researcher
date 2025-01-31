@@ -53,18 +53,15 @@ class DetailedReport:
         memory_manager = MemoryManager()
         
         try:
-            # Initial research phase
             async with research_memory_manager(self.gpt_researcher):
                 await self._initial_research()
                 subtopics = await self._get_all_subtopics()
                 initial_memory = memory_manager.get_memory_usage()
                 print(f"Memory after initial research: {initial_memory['rss_mb']:.2f} MB")
 
-            # Report generation phase
             report_introduction = await self.gpt_researcher.write_introduction()
             _, report_body = await self._generate_subtopic_reports(subtopics)
             
-            # Final assembly phase
             self.gpt_researcher.visited_urls.update(self.global_urls)
             report = await self._construct_detailed_report(report_introduction, report_body)
             
@@ -72,11 +69,15 @@ class DetailedReport:
             
         finally:
             # Cleanup phase
-            self.global_context.clear()
-            self.global_urls.clear()
-            self.existing_headers.clear()
-            self.global_written_sections.clear()
-            memory_manager.cleanup()
+            if isinstance(self.global_context, list):
+                self.global_context.clear()
+            if isinstance(self.global_urls, set):
+                self.global_urls.clear()
+            if isinstance(self.existing_headers, list):
+                self.existing_headers.clear()
+            if isinstance(self.global_written_sections, list):
+                self.global_written_sections.clear()
+            memory_manager.force_cleanup()
 
     async def _initial_research(self) -> None:
         await self.gpt_researcher.conduct_research()

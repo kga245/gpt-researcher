@@ -57,9 +57,9 @@ async def research_memory_manager(researcher, check_interval=5):
         yield researcher
     finally:
         memory_check_task.cancel()
-        if hasattr(researcher, 'context'):
+        if hasattr(researcher, 'context') and isinstance(researcher.context, list):
             researcher.context.clear()
-        if hasattr(researcher, 'visited_urls'):
+        if hasattr(researcher, 'visited_urls') and isinstance(researcher.visited_urls, set):
             researcher.visited_urls.clear()
         MemoryManager.force_cleanup()
         final_memory = MemoryManager.get_memory_usage()
