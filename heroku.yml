@@ -2,4 +2,4 @@ build:
   docker:
     web: Dockerfile
 run:
-  web: uvicorn main:app --host=0.0.0.0 --port=$PORT
+  web: PYTHONPATH=. python3 -m uvicorn main:app --host=0.0.0.0 --port=$PORT --workers=2 --memory-max-rss=512 --limit-memory-hard=600M --limit-memory-soft=512M

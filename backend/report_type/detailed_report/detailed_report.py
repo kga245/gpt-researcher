@@ -3,6 +3,7 @@ from typing import List, Dict, Set, Optional, Any
 from fastapi import WebSocket
 
 from gpt_researcher import GPTResearcher
+from gpt_researcher.utils.memory_manager import MemoryManager, research_memory_manager
 
 
 class DetailedReport:
@@ -48,13 +49,34 @@ class DetailedReport:
             self.source_urls) if self.source_urls else set()
 
     async def run(self) -> str:
-        await self._initial_research()
-        subtopics = await self._get_all_subtopics()
-        report_introduction = await self.gpt_researcher.write_introduction()
-        _, report_body = await self._generate_subtopic_reports(subtopics)
-        self.gpt_researcher.visited_urls.update(self.global_urls)
-        report = await self._construct_detailed_report(report_introduction, report_body)
-        return report
+        """Run the detailed report generation with memory management."""
+        memory_manager = MemoryManager()
+        
+        try:
+            # Initial research phase
+            async with research_memory_manager(self.gpt_researcher):
+                await self._initial_research()
+                subtopics = await self._get_all_subtopics()
+                initial_memory = memory_manager.get_memory_usage()
+                print(f"Memory after initial research: {initial_memory['rss_mb']:.2f} MB")
+
+            # Report generation phase
+            report_introduction = await self.gpt_researcher.write_introduction()
+            _, report_body = await self._generate_subtopic_reports(subtopics)
+            
+            # Final assembly phase
+            self.gpt_researcher.visited_urls.update(self.global_urls)
+            report = await self._construct_detailed_report(report_introduction, report_body)
+            
+            return report
+            
+        finally:
+            # Cleanup phase
+            self.global_context.clear()
+            self.global_urls.clear()
+            self.existing_headers.clear()
+            self.global_written_sections.clear()
+            memory_manager.cleanup()
 
     async def _initial_research(self) -> None:
         await self.gpt_researcher.conduct_research()
@@ -74,15 +96,21 @@ class DetailedReport:
         return all_subtopics
 
     async def _generate_subtopic_reports(self, subtopics: List[Dict]) -> tuple:
+        """Generate reports for subtopics with memory management."""
         subtopic_reports = []
         subtopics_report_body = ""
-
+        
         for subtopic in subtopics:
-            result = await self._get_subtopic_report(subtopic)
-            if result["report"]:
-                subtopic_reports.append(result)
-                subtopics_report_body += f"\n\n\n{result['report']}"
-
+            async with research_memory_manager(self.gpt_researcher):
+                result = await self._get_subtopic_report(subtopic)
+                if result["report"]:
+                    subtopic_reports.append(result)
+                    subtopics_report_body += f"\n\n\n{result['report']}"
+                    
+                # Clear intermediate results
+                if hasattr(self.gpt_researcher, 'context'):
+                    self.gpt_researcher.context = []
+                
         return subtopic_reports, subtopics_report_body
 
     async def _get_subtopic_report(self, subtopic: Dict) -> Dict[str, str]:

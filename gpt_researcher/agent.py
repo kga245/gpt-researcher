@@ -23,6 +23,8 @@ from .actions import (
     choose_agent
 )
 
+from gpt_researcher.utils.memory_manager import MemoryManager
+
 
 class GPTResearcher:
     def __init__(
@@ -111,54 +113,79 @@ class GPTResearcher:
                 logging.getLogger('research').error(f"Error in _log_event: {e}", exc_info=True)
 
     async def conduct_research(self):
-        await self._log_event("research", step="start", details={
-            "query": self.query,
-            "report_type": self.report_type,
-            "agent": self.agent,
-            "role": self.role
-        })
-
-        if not (self.agent and self.role):
-            await self._log_event("action", action="choose_agent")
-            self.agent, self.role = await choose_agent(
-                query=self.query,
-                cfg=self.cfg,
-                parent_query=self.parent_query,
-                cost_callback=self.add_costs,
-                headers=self.headers,
-            )
-            await self._log_event("action", action="agent_selected", details={
+        """Conduct research with memory management."""
+        memory_manager = MemoryManager()
+        
+        try:
+            initial_memory = memory_manager.get_memory_usage()
+            print(f"Starting research. Memory usage: {initial_memory['rss_mb']:.2f} MB")
+            
+            await self._log_event("research", step="start", details={
+                "query": self.query,
+                "report_type": self.report_type,
                 "agent": self.agent,
                 "role": self.role
             })
 
-        await self._log_event("research", step="conducting_research", details={
-            "agent": self.agent,
-            "role": self.role
-        })
-        self.context = await self.research_conductor.conduct_research()
-        
-        await self._log_event("research", step="research_completed", details={
-            "context_length": len(self.context)
-        })
-        return self.context
+            if not (self.agent and self.role):
+                await self._log_event("action", action="choose_agent")
+                self.agent, self.role = await choose_agent(
+                    query=self.query,
+                    cfg=self.cfg,
+                    parent_query=self.parent_query,
+                    cost_callback=self.add_costs,
+                    headers=self.headers,
+                )
+                await self._log_event("action", action="agent_selected", details={
+                    "agent": self.agent,
+                    "role": self.role
+                })
+
+            await self._log_event("research", step="conducting_research", details={
+                "agent": self.agent,
+                "role": self.role
+            })
+            self.context = await self.research_conductor.conduct_research()
+            
+            await self._log_event("research", step="research_completed", details={
+                "context_length": len(self.context)
+            })
+            result = self.context
+            
+            current_memory = memory_manager.get_memory_usage()
+            print(f"Research completed. Memory usage: {current_memory['rss_mb']:.2f} MB")
+            
+            return result
+            
+        finally:
+            # Cleanup intermediate data
+            if hasattr(self, 'intermediate_results'):
+                del self.intermediate_results
+            memory_manager.cleanup()
 
     async def write_report(self, existing_headers: list = [], relevant_written_contents: list = [], ext_context=None) -> str:
-        await self._log_event("research", step="writing_report", details={
-            "existing_headers": existing_headers,
-            "context_source": "external" if ext_context else "internal"
-        })
-        
-        report = await self.report_generator.write_report(
-            existing_headers,
-            relevant_written_contents,
-            ext_context or self.context
-        )
-        
-        await self._log_event("research", step="report_completed", details={
-            "report_length": len(report)
-        })
-        return report
+        """Write report with memory management."""
+        try:
+            await self._log_event("research", step="writing_report", details={
+                "existing_headers": existing_headers,
+                "context_source": "external" if ext_context else "internal"
+            })
+            
+            report = await self.report_generator.write_report(
+                existing_headers,
+                relevant_written_contents,
+                ext_context or self.context
+            )
+            
+            await self._log_event("research", step="report_completed", details={
+                "report_length": len(report)
+            })
+            return report
+        finally:
+            # Clear unnecessary data after report generation
+            if hasattr(self, 'context') and not ext_context:
+                self.context.clear()
+            relevant_written_contents.clear()
 
     async def write_report_conclusion(self, report_body: str) -> str:
         await self._log_event("research", step="writing_conclusion")
