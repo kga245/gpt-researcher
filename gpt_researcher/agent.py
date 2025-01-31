@@ -158,10 +158,10 @@ class GPTResearcher:
             return result
             
         finally:
-            # Cleanup intermediate data
+            # Use the correct method name
+            memory_manager.force_cleanup()
             if hasattr(self, 'intermediate_results'):
                 del self.intermediate_results
-            memory_manager.cleanup()
 
     async def write_report(self, existing_headers: list = [], relevant_written_contents: list = [], ext_context=None) -> str:
         """Write report with memory management."""
