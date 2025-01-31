@@ -1,6 +1,7 @@
 import asyncio
 from typing import List, Dict, Set, Optional, Any
 from fastapi import WebSocket
+import gc
 
 from gpt_researcher import GPTResearcher
 from gpt_researcher.utils.memory_manager import MemoryManager, research_memory_manager
@@ -124,50 +125,64 @@ class DetailedReport:
         
         return subtopic_reports, subtopics_report_body
 
-    async def _get_subtopic_report(self, subtopic: Dict) -> Dict[str, str]:
-        current_subtopic_task = subtopic.get("task")
-        subtopic_assistant = GPTResearcher(
-            query=current_subtopic_task,
-            report_type="subtopic_report",
-            report_source=self.report_source,
-            websocket=self.websocket,
-            headers=self.headers,
-            parent_query=self.query,
-            subtopics=self.subtopics,
-            visited_urls=self.global_urls,
-            agent=self.gpt_researcher.agent,
-            role=self.gpt_researcher.role,
-            tone=self.tone,
-        )
+    async def _get_subtopic_report(self, subtopic: Dict) -> Dict:
+        """Get report for a specific subtopic with proper error handling."""
+        try:
+            current_subtopic_task = subtopic.get('task', '')
+            parse_draft_section_titles_text = subtopic.get('section_titles', '')
+            
+            subtopic_assistant = GPTResearcher(
+                query=current_subtopic_task,
+                report_type=self.report_type,
+                report_source=self.report_source,
+                source_urls=self.source_urls,
+                document_urls=self.document_urls,
+                config_path=self.config_path,
+                tone=self.tone,
+                websocket=self.websocket
+            )
 
-        subtopic_assistant.context = list(set(self.global_context))
-        await subtopic_assistant.conduct_research()
+            relevant_contents = await subtopic_assistant.conduct_research()
+            subtopic_report = await subtopic_assistant.write_report(
+                self.existing_headers,
+                relevant_contents,
+                self.global_written_sections
+            )
 
-        draft_section_titles = await subtopic_assistant.get_draft_section_titles(current_subtopic_task)
+            # Safe context handling
+            if hasattr(subtopic_assistant, 'context') and subtopic_assistant.context is not None:
+                self.global_context = list(set(subtopic_assistant.context))
+            else:
+                self.global_context = []
 
-        if not isinstance(draft_section_titles, str):
-            draft_section_titles = str(draft_section_titles)
+            # Safe URL handling
+            if hasattr(subtopic_assistant, 'visited_urls'):
+                self.global_urls.update(subtopic_assistant.visited_urls or set())
 
-        parse_draft_section_titles = self.gpt_researcher.extract_headers(draft_section_titles)
-        parse_draft_section_titles_text = [header.get(
-            "text", "") for header in parse_draft_section_titles]
+            self.global_written_sections.extend(
+                self.gpt_researcher.extract_sections(subtopic_report) or []
+            )
 
-        relevant_contents = await subtopic_assistant.get_similar_written_contents_by_draft_section_titles(
-            current_subtopic_task, parse_draft_section_titles_text, self.global_written_sections
-        )
+            self.existing_headers.append({
+                "subtopic task": current_subtopic_task,
+                "headers": self.gpt_researcher.extract_headers(subtopic_report) or [],
+            })
 
-        subtopic_report = await subtopic_assistant.write_report(self.existing_headers, relevant_contents)
+            # Clear assistant's memory
+            if hasattr(subtopic_assistant, 'context'):
+                subtopic_assistant.context = None
+            if hasattr(subtopic_assistant, 'visited_urls'):
+                subtopic_assistant.visited_urls = None
 
-        self.global_written_sections.extend(self.gpt_researcher.extract_sections(subtopic_report))
-        self.global_context = list(set(subtopic_assistant.context))
-        self.global_urls.update(subtopic_assistant.visited_urls)
-
-        self.existing_headers.append({
-            "subtopic task": current_subtopic_task,
-            "headers": self.gpt_researcher.extract_headers(subtopic_report),
-        })
-
-        return {"topic": subtopic, "report": subtopic_report}
+            return {"topic": subtopic, "report": subtopic_report}
+            
+        except Exception as e:
+            print(f"Error in _get_subtopic_report: {str(e)}")
+            # Return empty result on error
+            return {"topic": subtopic, "report": ""}
+        finally:
+            # Force garbage collection
+            gc.collect()
 
     async def _construct_detailed_report(self, introduction: str, report_body: str) -> str:
         toc = self.gpt_researcher.table_of_contents(report_body)

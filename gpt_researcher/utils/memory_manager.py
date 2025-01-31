@@ -3,9 +3,10 @@ import psutil
 import os
 from typing import Dict
 from contextlib import asynccontextmanager
+import time
 
 class MemoryManager:
-    MEMORY_THRESHOLD = 450  # MB - set lower than Heroku's 512MB limit
+    MEMORY_THRESHOLD = 400  # Lowered from 450 to 400 MB
 
     @staticmethod
     def get_memory_usage() -> Dict[str, float]:
@@ -20,22 +21,30 @@ class MemoryManager:
 
     @staticmethod
     def check_memory_threshold():
-        """Check if memory usage is approaching threshold"""
+        """Check if memory usage is approaching threshold and force cleanup if needed"""
         usage = MemoryManager.get_memory_usage()
         if usage['rss_mb'] > MemoryManager.MEMORY_THRESHOLD:
-            print(f"Memory threshold exceeded: {usage['rss_mb']:.2f} MB")
+            print(f"Memory threshold exceeded: {usage['rss_mb']:.2f} MB - forcing cleanup")
             MemoryManager.force_cleanup()
+            # Second cleanup after a short delay if still high
+            if MemoryManager.get_memory_usage()['rss_mb'] > MemoryManager.MEMORY_THRESHOLD:
+                time.sleep(0.1)  # Brief pause
+                MemoryManager.force_cleanup()
 
     @staticmethod
     def force_cleanup():
-        """Aggressive memory cleanup"""
+        """More aggressive memory cleanup"""
         gc.collect()
+        gc.collect()  # Double collection
         if hasattr(gc, 'collect_generations'):
             gc.collect_generations()
         
-        # Clear Python's internal memory pools
+        # Try to release memory back to the system
         import ctypes
-        ctypes.CDLL('libc.so.6').malloc_trim(0)
+        try:
+            ctypes.CDLL('libc.so.6').malloc_trim(0)
+        except:
+            pass  # Ignore if not available
 
 @asynccontextmanager
 async def research_memory_manager(researcher, check_interval=5):
