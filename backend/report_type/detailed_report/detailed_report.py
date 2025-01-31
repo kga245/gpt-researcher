@@ -64,45 +64,42 @@ class DetailedReport:
             report_introduction = await self.gpt_researcher.write_introduction()
             _, report_body = await self._generate_subtopic_reports(subtopics)
             
-            self.gpt_researcher.visited_urls.update(self.global_urls)
+            # Safe URL update with null check
+            if (hasattr(self.gpt_researcher, 'visited_urls') and 
+                self.gpt_researcher.visited_urls is not None and 
+                hasattr(self, 'global_urls')):
+                self.gpt_researcher.visited_urls.update(self.global_urls or set())
+            
             report = await self._construct_detailed_report(report_introduction, report_body)
             
             # Clear large strings immediately
             del report_introduction
             del report_body
+            del subtopics
             
             return report
             
         finally:
             # Aggressive cleanup phase
-            if hasattr(self, 'global_context'):
-                if isinstance(self.global_context, (list, dict, set)):
-                    self.global_context.clear()
-                self.global_context = None
-                
-            if hasattr(self, 'global_urls'):
-                if isinstance(self.global_urls, set):
-                    self.global_urls.clear()
-                self.global_urls = None
-                
-            if hasattr(self, 'existing_headers'):
-                if isinstance(self.existing_headers, list):
-                    self.existing_headers.clear()
-                self.existing_headers = None
-                
-            if hasattr(self, 'global_written_sections'):
-                if isinstance(self.global_written_sections, list):
-                    self.global_written_sections.clear()
-                self.global_written_sections = None
-                
+            for attr in ['global_context', 'global_urls', 'existing_headers', 
+                        'global_written_sections']:
+                if hasattr(self, attr):
+                    attr_value = getattr(self, attr)
+                    if isinstance(attr_value, (list, dict, set)):
+                        attr_value.clear()
+                    setattr(self, attr, None)
+            
             # Clear the researcher object
             if hasattr(self, 'gpt_researcher'):
-                if hasattr(self.gpt_researcher, 'context'):
-                    self.gpt_researcher.context = None
-                if hasattr(self.gpt_researcher, 'visited_urls'):
-                    self.gpt_researcher.visited_urls = None
+                for attr in ['context', 'visited_urls', 'intermediate_results']:
+                    if hasattr(self.gpt_researcher, attr):
+                        setattr(self.gpt_researcher, attr, None)
+                self.gpt_researcher = None
             
-            memory_manager.force_cleanup()
+            # Force cleanup multiple times
+            for _ in range(3):
+                memory_manager.force_cleanup()
+                await asyncio.sleep(0.1)  # Give OS time to reclaim memory
 
     async def _initial_research(self) -> None:
         await self.gpt_researcher.conduct_research()

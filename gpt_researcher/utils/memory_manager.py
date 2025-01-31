@@ -6,8 +6,8 @@ from typing import Dict
 from contextlib import asynccontextmanager
 
 class MemoryManager:
-    MEMORY_THRESHOLD = 350  # Even lower threshold
-    CRITICAL_THRESHOLD = 450  # Critical threshold for emergency cleanup
+    MEMORY_THRESHOLD = 300  # Even lower threshold
+    CRITICAL_THRESHOLD = 400  # Lower critical threshold
     
     @staticmethod
     def get_memory_usage() -> Dict[str, float]:
@@ -22,18 +22,19 @@ class MemoryManager:
 
     @staticmethod
     def emergency_cleanup():
-        """Emergency cleanup when memory is critical"""
+        """More aggressive emergency cleanup"""
         gc.collect()
-        gc.collect()
+        gc.collect()  # Double collection
         if hasattr(gc, 'collect_generations'):
             gc.collect_generations()
         
-        # Try to release memory back to OS
+        # Try to release memory back to the system
         try:
             import ctypes
-            ctypes.CDLL('libc.so.6').malloc_trim(0)
+            libc = ctypes.CDLL('libc.so.6')
+            libc.malloc_trim(0)
         except:
-            pass
+            pass  # Ignore if not available
 
     @staticmethod
     def check_memory_threshold():
@@ -44,7 +45,7 @@ class MemoryManager:
             print(f"CRITICAL: Memory at {usage['rss_mb']:.2f} MB - forcing emergency cleanup")
             MemoryManager.emergency_cleanup()
             time.sleep(0.1)  # Give OS time to reclaim memory
-            MemoryManager.emergency_cleanup()
+            MemoryManager.emergency_cleanup()  # Double cleanup
             
         elif usage['rss_mb'] > MemoryManager.MEMORY_THRESHOLD:
             print(f"WARNING: Memory at {usage['rss_mb']:.2f} MB - running cleanup")
