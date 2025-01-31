@@ -52,6 +52,7 @@ class DetailedReport:
     async def run(self) -> str:
         """Run the detailed report generation with memory management."""
         memory_manager = MemoryManager()
+        report = None
         
         try:
             async with research_memory_manager(self.gpt_researcher):
@@ -66,22 +67,40 @@ class DetailedReport:
             self.gpt_researcher.visited_urls.update(self.global_urls)
             report = await self._construct_detailed_report(report_introduction, report_body)
             
+            # Clear large strings immediately
+            del report_introduction
+            del report_body
+            
             return report
             
         finally:
-            # Cleanup phase with type checking
+            # Aggressive cleanup phase
             if hasattr(self, 'global_context'):
                 if isinstance(self.global_context, (list, dict, set)):
                     self.global_context.clear()
-                else:
-                    self.global_context = None
+                self.global_context = None
                 
-            if isinstance(self.global_urls, set):
-                self.global_urls.clear()
-            if isinstance(self.existing_headers, list):
-                self.existing_headers.clear()
-            if isinstance(self.global_written_sections, list):
-                self.global_written_sections.clear()
+            if hasattr(self, 'global_urls'):
+                if isinstance(self.global_urls, set):
+                    self.global_urls.clear()
+                self.global_urls = None
+                
+            if hasattr(self, 'existing_headers'):
+                if isinstance(self.existing_headers, list):
+                    self.existing_headers.clear()
+                self.existing_headers = None
+                
+            if hasattr(self, 'global_written_sections'):
+                if isinstance(self.global_written_sections, list):
+                    self.global_written_sections.clear()
+                self.global_written_sections = None
+                
+            # Clear the researcher object
+            if hasattr(self, 'gpt_researcher'):
+                if hasattr(self.gpt_researcher, 'context'):
+                    self.gpt_researcher.context = None
+                if hasattr(self.gpt_researcher, 'visited_urls'):
+                    self.gpt_researcher.visited_urls = None
             
             memory_manager.force_cleanup()
 
