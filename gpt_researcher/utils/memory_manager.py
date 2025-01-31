@@ -1,13 +1,14 @@
 import gc
 import psutil
 import os
+import time
 from typing import Dict
 from contextlib import asynccontextmanager
-import time
 
 class MemoryManager:
-    MEMORY_THRESHOLD = 400  # Lowered from 450 to 400 MB
-
+    MEMORY_THRESHOLD = 350  # Even lower threshold
+    CRITICAL_THRESHOLD = 450  # Critical threshold for emergency cleanup
+    
     @staticmethod
     def get_memory_usage() -> Dict[str, float]:
         """Get current memory usage of the process."""
@@ -20,35 +21,45 @@ class MemoryManager:
         }
 
     @staticmethod
-    def check_memory_threshold():
-        """Check if memory usage is approaching threshold and force cleanup if needed"""
-        usage = MemoryManager.get_memory_usage()
-        if usage['rss_mb'] > MemoryManager.MEMORY_THRESHOLD:
-            print(f"Memory threshold exceeded: {usage['rss_mb']:.2f} MB - forcing cleanup")
-            MemoryManager.force_cleanup()
-            # Second cleanup after a short delay if still high
-            if MemoryManager.get_memory_usage()['rss_mb'] > MemoryManager.MEMORY_THRESHOLD:
-                time.sleep(0.1)  # Brief pause
-                MemoryManager.force_cleanup()
-
-    @staticmethod
-    def force_cleanup():
-        """More aggressive memory cleanup"""
+    def emergency_cleanup():
+        """Emergency cleanup when memory is critical"""
         gc.collect()
-        gc.collect()  # Double collection
+        gc.collect()
         if hasattr(gc, 'collect_generations'):
             gc.collect_generations()
         
-        # Try to release memory back to the system
-        import ctypes
+        # Try to release memory back to OS
         try:
+            import ctypes
             ctypes.CDLL('libc.so.6').malloc_trim(0)
         except:
-            pass  # Ignore if not available
+            pass
+
+    @staticmethod
+    def check_memory_threshold():
+        """Check if memory usage is approaching threshold"""
+        usage = MemoryManager.get_memory_usage()
+        
+        if usage['rss_mb'] > MemoryManager.CRITICAL_THRESHOLD:
+            print(f"CRITICAL: Memory at {usage['rss_mb']:.2f} MB - forcing emergency cleanup")
+            MemoryManager.emergency_cleanup()
+            time.sleep(0.1)  # Give OS time to reclaim memory
+            MemoryManager.emergency_cleanup()
+            
+        elif usage['rss_mb'] > MemoryManager.MEMORY_THRESHOLD:
+            print(f"WARNING: Memory at {usage['rss_mb']:.2f} MB - running cleanup")
+            MemoryManager.force_cleanup()
+
+    @staticmethod
+    def force_cleanup():
+        """Standard cleanup"""
+        gc.collect()
+        if hasattr(gc, 'collect_generations'):
+            gc.collect_generations()
 
 @asynccontextmanager
-async def research_memory_manager(researcher, check_interval=5):
-    """Context manager with periodic memory checks"""
+async def research_memory_manager(researcher, check_interval=2):  # Reduced interval
+    """Context manager with more frequent memory checks"""
     try:
         initial_memory = MemoryManager.get_memory_usage()
         print(f"Initial memory usage: {initial_memory['rss_mb']:.2f} MB")
@@ -66,10 +77,10 @@ async def research_memory_manager(researcher, check_interval=5):
         yield researcher
     finally:
         memory_check_task.cancel()
-        if hasattr(researcher, 'context') and isinstance(researcher.context, list):
-            researcher.context.clear()
-        if hasattr(researcher, 'visited_urls') and isinstance(researcher.visited_urls, set):
-            researcher.visited_urls.clear()
-        MemoryManager.force_cleanup()
+        if hasattr(researcher, 'context'):
+            researcher.context = None
+        if hasattr(researcher, 'visited_urls'):
+            researcher.visited_urls = None
+        MemoryManager.emergency_cleanup()
         final_memory = MemoryManager.get_memory_usage()
         print(f"Final memory usage: {final_memory['rss_mb']:.2f} MB") 
