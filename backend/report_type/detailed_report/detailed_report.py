@@ -96,21 +96,26 @@ class DetailedReport:
         return all_subtopics
 
     async def _generate_subtopic_reports(self, subtopics: List[Dict]) -> tuple:
-        """Generate reports for subtopics with memory management."""
+        """Generate reports for subtopics with aggressive memory management."""
         subtopic_reports = []
         subtopics_report_body = ""
         
         for subtopic in subtopics:
-            async with research_memory_manager(self.gpt_researcher):
+            async with research_memory_manager(self.gpt_researcher, check_interval=2):
                 result = await self._get_subtopic_report(subtopic)
                 if result["report"]:
-                    subtopic_reports.append(result)
+                    # Store only necessary data
+                    subtopic_reports.append({
+                        "topic": result["topic"],
+                        "report": result["report"]
+                    })
                     subtopics_report_body += f"\n\n\n{result['report']}"
                     
-                # Clear intermediate results
+                # Clear intermediate data
                 if hasattr(self.gpt_researcher, 'context'):
                     self.gpt_researcher.context = []
-                
+                MemoryManager.check_memory_threshold()
+        
         return subtopic_reports, subtopics_report_body
 
     async def _get_subtopic_report(self, subtopic: Dict) -> Dict[str, str]:

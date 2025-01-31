@@ -5,6 +5,8 @@ from typing import Dict
 from contextlib import asynccontextmanager
 
 class MemoryManager:
+    MEMORY_THRESHOLD = 450  # MB - set lower than Heroku's 512MB limit
+
     @staticmethod
     def get_memory_usage() -> Dict[str, float]:
         """Get current memory usage of the process."""
@@ -17,23 +19,48 @@ class MemoryManager:
         }
 
     @staticmethod
-    def cleanup():
-        """Force garbage collection."""
+    def check_memory_threshold():
+        """Check if memory usage is approaching threshold"""
+        usage = MemoryManager.get_memory_usage()
+        if usage['rss_mb'] > MemoryManager.MEMORY_THRESHOLD:
+            print(f"Memory threshold exceeded: {usage['rss_mb']:.2f} MB")
+            MemoryManager.force_cleanup()
+
+    @staticmethod
+    def force_cleanup():
+        """Aggressive memory cleanup"""
         gc.collect()
+        if hasattr(gc, 'collect_generations'):
+            gc.collect_generations()
+        
+        # Clear Python's internal memory pools
+        import ctypes
+        ctypes.CDLL('libc.so.6').malloc_trim(0)
 
 @asynccontextmanager
-async def research_memory_manager(researcher):
-    """Context manager for handling research memory cleanup."""
+async def research_memory_manager(researcher, check_interval=5):
+    """Context manager with periodic memory checks"""
     try:
         initial_memory = MemoryManager.get_memory_usage()
         print(f"Initial memory usage: {initial_memory['rss_mb']:.2f} MB")
+        
+        # Set up periodic memory check
+        from asyncio import create_task, sleep
+        
+        async def periodic_check():
+            while True:
+                await sleep(check_interval)
+                MemoryManager.check_memory_threshold()
+        
+        memory_check_task = create_task(periodic_check())
+        
         yield researcher
     finally:
-        # Clear memory-intensive attributes
+        memory_check_task.cancel()
         if hasattr(researcher, 'context'):
             researcher.context.clear()
         if hasattr(researcher, 'visited_urls'):
             researcher.visited_urls.clear()
-        MemoryManager.cleanup()
+        MemoryManager.force_cleanup()
         final_memory = MemoryManager.get_memory_usage()
         print(f"Final memory usage: {final_memory['rss_mb']:.2f} MB") 
