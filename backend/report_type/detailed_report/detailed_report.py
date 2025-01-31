@@ -68,12 +68,21 @@ class DetailedReport:
             return report
             
         finally:
-            # Use the correct method name
-            self.global_context.clear()
-            self.global_urls.clear()
-            self.existing_headers.clear()
-            self.global_written_sections.clear()
-            memory_manager.force_cleanup()  # Changed from cleanup() to force_cleanup()
+            # Cleanup phase with type checking
+            if hasattr(self, 'global_context'):
+                if isinstance(self.global_context, (list, dict, set)):
+                    self.global_context.clear()
+                else:
+                    self.global_context = None
+                
+            if isinstance(self.global_urls, set):
+                self.global_urls.clear()
+            if isinstance(self.existing_headers, list):
+                self.existing_headers.clear()
+            if isinstance(self.global_written_sections, list):
+                self.global_written_sections.clear()
+            
+            memory_manager.force_cleanup()
 
     async def _initial_research(self) -> None:
         await self.gpt_researcher.conduct_research()

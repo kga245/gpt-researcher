@@ -182,10 +182,14 @@ class GPTResearcher:
             })
             return report
         finally:
-            # Clear unnecessary data after report generation
-            if hasattr(self, 'context') and not ext_context:
-                self.context.clear()
-            relevant_written_contents.clear()
+            # Check type before clearing
+            if hasattr(self, 'context'):
+                if isinstance(self.context, (list, dict, set)):
+                    self.context.clear()
+                else:
+                    self.context = None
+            if isinstance(relevant_written_contents, list):
+                relevant_written_contents.clear()
 
     async def write_report_conclusion(self, report_body: str) -> str:
         await self._log_event("research", step="writing_conclusion")
